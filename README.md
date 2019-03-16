@@ -1,7 +1,7 @@
 # snimultihop - SNI Multi-Hop Router
 
 Based on original work
-[tcpproxy by Google](https://github.com/google/tcpproxy/tree/master/cmd/tlsrouter).
+[tlsrouter by Google](https://github.com/google/tcpproxy/tree/master/cmd/tlsrouter).
 
 Experimental Multi-hop SNI routing for unbroken end-2-end TLS encrypted
 API calls (e.g. to a Kubernetes SNI enabled Ingress Controller).
