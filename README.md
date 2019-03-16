@@ -3,7 +3,7 @@
 Based on original work
 [tcpproxy by Google](https://github.com/google/tcpproxy/tree/master/cmd/tlsrouter).
 
-Experimental Mult-hop SNI routing for unbroken end-2-end TLS encrypted
+Experimental Multi-hop SNI routing for unbroken end-2-end TLS encrypted
 API calls (e.g. to a Kubernetes SNI enabled Ingress Controller).
 
 ## Configuration
