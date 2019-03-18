@@ -42,6 +42,16 @@ then
   exit 1
 fi
 
+echo "Logging in to dockerhub"
+docker login || exit 2
+echo "Building goethite/snimultihop:$TAG image"
+docker build -t goethite/snimultihop:$TAG . || exit 2
+echo "Pushing goethite/snimultihop:$TAG to dockerhub"
+docker push goethite/snimultihop:$TAG || exit 2
+
+docker tag goethite/snimultihop:$TAG goethite/snimultihop:latest || exit 2
+docker push goethite/snimultihop:latest || exit 2
+
 echo "Tagging master as $TAG"
 git tag -a $TAG -m "$COMMENT"
 
