@@ -1,5 +1,8 @@
 # snimultihop - SNI Multi-Hop Router
 
+| ![](https://img.shields.io/github/release/goethite/snimultihop.svg) | ![](https://img.shields.io/github/license/goethite/snimultihop.svg) |
+|-|-|
+
 Based on original work
 [tlsrouter by Google](https://github.com/google/tcpproxy/tree/master/cmd/tlsrouter).
 

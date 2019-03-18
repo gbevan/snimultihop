@@ -14,3 +14,4 @@ snimultihop
 
 /.vagrant
 /vendor
+/dist/
