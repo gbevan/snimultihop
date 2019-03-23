@@ -9,6 +9,8 @@ Based on original work
 Experimental Multi-hop SNI routing for unbroken end-2-end TLS encrypted
 API calls (e.g. to a Kubernetes SNI enabled Ingress Controller).
 
+![Cross VPC Routing](docs/use_case_cross_vpcs.svg)
+
 ## Configuration
 ```
 # Examples:
