@@ -21,28 +21,116 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/gbevan/snimultihop/logmsg"
 )
 
 var (
-	cfgFile      = flag.String("conf", "", "configuration file")
-	listen       = flag.String("listen", ":443", "listening port")
-	helloTimeout = flag.Duration("hello-timeout", 3*time.Second, "how long to wait for the TLS ClientHello")
+	cfgFile       = flag.String("conf", "", "configuration file")
+	listen        = flag.String("listen", ":443", "listening port")
+	metricsListen = flag.String("metrics-listen", ":2112", "metrics listening port")
+	helloTimeout  = flag.Duration("hello-timeout", 3*time.Second, "how long to wait for the TLS ClientHello")
+
+	sniConnectionRequests = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "sni_proxy_connection_requests_total",
+		Help: "SNI Multi-Hop Router proxy connection requests",
+	})
+	sniConnectionNoBackendRequests = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "sni_proxy_connection_requests_no_backend_total",
+		Help: "SNI Multi-Hop Router proxy connection requests failed with no backend to route to",
+	})
+	sniConnectionFailedDialBackendRequests = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "sni_proxy_connection_requests_failed_dial_backend_total",
+		Help: "SNI Multi-Hop Router proxy connection requests failed to dial backend",
+	})
+	sniProxyInProgress = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "sni_proxy_sessions_in_progress",
+		Help: "SNI Multi-Hop Router proxy sessions in progress",
+	})
+	sniProxyDropped = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "sni_proxy_sessions_dropped_total",
+		Help: "SNI Multi-Hop Router proxy sessions dropped",
+	})
 )
+
+func loadCfg(p *Proxy) {
+	if err := p.Config.ReadFile(*cfgFile); err != nil {
+		logmsg.Fatal("Watcher failed to read config %q: %s", *cfgFile, err)
+	}
+	logmsg.Info("Config loaded from: %s", *cfgFile)
+}
 
 func main() {
 	flag.Parse()
 
 	p := &Proxy{}
-	if err := p.Config.ReadFile(*cfgFile); err != nil {
-		logmsg.Fatal("Failed to read config %q: %s", *cfgFile, err)
+
+	// Watch config file for changes
+	// ref: https://github.com/fsnotify/fsnotify/blob/master/example_test.go
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		logmsg.Fatal("Failed to create fsnotofy watcher: %s", err)
+	}
+	defer watcher.Close()
+
+	go func() {
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				if filepath.Base(event.Name) == *cfgFile {
+					logmsg.Debug("matched event: %s", event)
+
+					switch event.Op {
+					case fsnotify.Create:
+						logmsg.Debug("Created")
+
+					case fsnotify.Write:
+						logmsg.Debug("Written")
+						loadCfg(p)
+
+					case fsnotify.Chmod:
+						logmsg.Debug("Chmod")
+
+					case fsnotify.Rename, fsnotify.Remove:
+						logmsg.Debug("Renamed / Removed")
+					}
+				}
+
+			case err2, ok := <-watcher.Errors:
+				if !ok {
+					logmsg.Error("watcher not ok")
+					return
+				}
+				logmsg.Error("error:", err2)
+			}
+		}
+	}()
+
+	// Watch the folder holding the cfg file
+	absCfgFile, err := filepath.Abs(*cfgFile)
+	if err != nil {
+		logmsg.Fatal("Failed to resolve %s to absolute path: %s", *cfgFile, err)
+	}
+	err = watcher.Add(filepath.Dir(absCfgFile))
+	if err != nil {
+		logmsg.Fatal("Failed to watch config file: %s", err)
 	}
 
-	logmsg.Info("Starting snimultihop server on: %s", *listen)
+	loadCfg(p)
 
+	go metrics(metricsListen)
+
+	logmsg.Info("Starting snimultihop server on: %s", *listen)
 	logmsg.Fatal("%s", p.ListenAndServe(*listen))
 }
 
@@ -120,6 +208,7 @@ func (c *Conn) sniFailed(msg string, args ...interface{})     { c.abort(112, msg
 
 func (c *Conn) proxy() {
 	defer c.Close()
+	sniConnectionRequests.Inc()
 
 	if err := c.SetReadDeadline(time.Now().Add(*helloTimeout)); err != nil {
 		c.internalError("Setting read deadline for ClientHello: %s", err)
@@ -146,6 +235,7 @@ func (c *Conn) proxy() {
 	addProxyHeader := false
 	c.backend, addProxyHeader = c.config.Match(c.hostname)
 	if c.backend == "" {
+		sniConnectionNoBackendRequests.Inc()
 		c.sniFailed("no backend found for %q", c.hostname)
 		return
 	}
@@ -153,6 +243,7 @@ func (c *Conn) proxy() {
 	c.logf("routing %q to %q", c.hostname, c.backend)
 	backend, err := net.DialTimeout("tcp", c.backend, 10*time.Second)
 	if err != nil {
+		sniConnectionFailedDialBackendRequests.Inc()
 		c.internalError("failed to dial backend %q for %q: %s", c.backend, c.hostname, err)
 		return
 	}
@@ -190,10 +281,15 @@ func (c *Conn) proxy() {
 }
 
 func proxy(wg *sync.WaitGroup, a, b net.Conn) {
-	defer wg.Done()
+	sniProxyInProgress.Inc()
+	defer func() {
+		sniProxyInProgress.Dec()
+		wg.Done()
+	}()
 	atcp, btcp := a.(*net.TCPConn), b.(*net.TCPConn)
 	if _, err := io.Copy(atcp, btcp); err != nil {
 		logmsg.Error("%s <> %s -> %s <> %s: %s", atcp.RemoteAddr(), atcp.LocalAddr(), btcp.LocalAddr(), btcp.RemoteAddr(), err)
+		sniProxyDropped.Inc()
 	}
 	btcp.CloseWrite()
 	atcp.CloseRead()

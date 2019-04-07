@@ -33,7 +33,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       d.image = "gbevan/vagrant-ubuntu-dev:bionic"
       d.has_ssh = true
       # d.ports = ["3232:3232", "8300:8200", "27017:27017"]
-      d.ports = ["8443:8443"]
+      d.ports = ["8443:8443", "2112:2112"]
       d.volumes = [
         "/etc/localtime:/etc/localtime:ro",
         "/etc/timezone:/etc/timezone:ro"
@@ -48,7 +48,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
       d.image = "gbevan/vagrant-ubuntu-dev:bionic"
       d.has_ssh = true
       # d.ports = ["3232:3232", "8300:8200", "27017:27017"]
-      d.ports = ["8444:8443"]
+      d.ports = ["8444:8443", "2113:2112"]
       d.volumes = [
         "/etc/localtime:/etc/localtime:ro",
         "/etc/timezone:/etc/timezone:ro"
